@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Chess Clock with Sound</title>
+    <style>
+        body, html {
+            margin: 0; padding: 0; height: 100%;
+            font-family: 'Arial Black', sans-serif;
+            overflow: hidden; display: flex; flex-direction: column;
+            background-color: #000;
+            touch-action: manipulation;
+        }
+
+        .player {
+            flex: 1; display: flex; align-items: center; justify-content: center;
+            font-size: clamp(4rem, 18vw, 8rem); 
+            transition: background 0.1s, opacity 0.2s;
+            -webkit-user-select: none; user-select: none;
+        }
+
+        #top { background-color: #2c3e50; color: #ecf0f1; transform: rotate(180deg); }
+        #bottom { background-color: #d35400; color: white; }
+
+        .inactive { opacity: 0.15; filter: grayscale(100%); }
+        .flash { background-color: #fff !important; }
+
+        #controls {
+            position: absolute; top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 100; background: #ffffff;
+            padding: 12px 20px; border-radius: 15px;
+            display: flex; flex-direction: column; align-items: center; gap: 10px;
+            box-shadow: 0 0 40px rgba(0,0,0,0.6);
+            border: 2px solid #333;
+        }
+
+        .menu-row { display: flex; gap: 10px; width: 100%; }
+        select { padding: 10px; font-size: 1.1rem; border-radius: 8px; flex-grow: 1; }
+        button { 
+            background: #c0392b; color: white; border: none; 
+            padding: 10px 20px; font-size: 1rem; border-radius: 8px; cursor: pointer; 
+        }
+    </style>
+</head>
+<body>
+
+    <div id="controls">
+        <div class="menu-row">
+            <select id="timeSelect" onchange="resetClock()">
+                <option value="60">Bullet (1 min)</option>
+                <option value="180">Blitz (3 min)</option>
+                <option value="300" selected>Standard (5 min)</option>
+                <option value="600">Rapid (10 min)</option>
+            </select>
+        </div>
+        <button onclick="resetClock()">Reset Match</button>
+    </div>
+
+    <div id="top" class="player" onmousedown="handleInput('bottom')" ontouchstart="handleInput('bottom')">
+        <span id="timer-top">05:00</span>
+    </div>
+
+    <div id="bottom" class="player" onmousedown="handleInput('top')" ontouchstart="handleInput('top')">
+        <span id="timer-bottom">05:00</span>
+    </div>
+
+    <script>
+        let timeLeft = { top: 300, bottom: 300 };
+        let activePlayer = null;
+        let interval = null;
+
+        // Sound Synthesis (Donkey-proof: No external files needed!)
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+        function playClick() {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(800, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(100, audioCtx.currentTime + 0.1);
+            gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.1);
+        }
+
+        function playBuzzer() {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(150, audioCtx.currentTime);
+            gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+            gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 1);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 1);
+        }
+
+        function handleInput(nextPlayer) {
+            if (event.type === 'touchstart') event.preventDefault(); 
+            
+            // Re-activate audio context for mobile (browsers block sound unless user touches first)
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+
+            playClick(); // PLAY THE CLICK
+
+            const currentSide = nextPlayer === 'bottom' ? 'top' : 'bottom';
+            const element = document.getElementById(currentSide);
+            element.classList.add('flash');
+            setTimeout(() => element.classList.remove('flash'), 40);
+
+            switchTurn(nextPlayer);
+        }
+
+        function switchTurn(nextPlayer) {
+            if (activePlayer === nextPlayer) return; 
+            activePlayer = nextPlayer;
+            
+            document.getElementById('top').classList.toggle('inactive', activePlayer !== 'top');
+            document.getElementById('bottom').classList.toggle('inactive', activePlayer !== 'bottom');
+
+            if (interval) clearInterval(interval);
+            interval = setInterval(() => {
+                if (timeLeft[activePlayer] > 0) {
+                    timeLeft[activePlayer]--;
+                    updateDisplay();
+                } else {
+                    clearInterval(interval);
+                    playBuzzer(); // PLAY THE BUZZER
+                    alert("GAME OVER!");
+                    resetClock();
+                }
+            }, 1000);
+        }
+
+        function updateDisplay() {
+            document.getElementById('timer-top').textContent = formatTime(timeLeft.top);
+            document.getElementById('timer-bottom').textContent = formatTime(timeLeft.bottom);
+        }
+
+        function formatTime(seconds) {
+            const mins = Math.floor(seconds / 60);
+            const secs = seconds % 60;
+            return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        }
+
+        function resetClock() {
+            clearInterval(interval);
+            interval = null;
+            activePlayer = null;
+            const newTime = parseInt(document.getElementById('timeSelect').value);
+            timeLeft = { top: newTime, bottom: newTime };
+            document.getElementById('top').classList.remove('inactive');
+            document.getElementById('bottom').classList.remove('inactive');
+            updateDisplay();
+        }
+    </script>
+</body>
+</html>
